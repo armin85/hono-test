@@ -1,6 +1,6 @@
 from proton import Message
 from proton.handlers import MessagingHandler
-from proton.reactor import Container
+from proton.reactor import AtLeastOnce
 
 
 class Amqp(MessagingHandler):
@@ -11,9 +11,10 @@ class Amqp(MessagingHandler):
         self.user = user
         self.password = password
         self.options = options
+        self.connection = None
 
     def create_connection(self, event):
-        return event.container.connect(
+        self.connection = event.container.connect(
             self.server,
             sasl_enabled=True,
             allowed_mechs="PLAIN",
@@ -21,6 +22,7 @@ class Amqp(MessagingHandler):
             user=self.user,
             password=self.password
         )
+        print("Connection established")
 
     def on_connection_error(self, event):
         print("Connection Error")
@@ -31,6 +33,16 @@ class Amqp(MessagingHandler):
     def on_transport_error(self, event):
         print("Transport Error")
 
+    def on_link_opened(self, event):
+        if event.link.is_sender:
+            print("Opened sender link")
+        if event.link.is_receiver:
+            print("Opened receiver link for source address '{0}'".format(event.receiver.source.address))
+
+    def stop(self):
+        self.connection.close()
+        print("Connection closed")
+
 
 class AmqpReceiver(Amqp):
     def __init__(self, server, address, user, password, options=None):
@@ -40,15 +52,16 @@ class AmqpReceiver(Amqp):
         self.password = password
 
     def on_start(self, event):
-        print("Connecting Receiver")
-        conn = self.create_connection(event)
-        print("Receiver Connection established")
-        event.container.create_receiver(context=conn, source=self.address, options=self.options)
+        self.create_connection(event)
+        event.container.create_receiver(context=self.connection, source=self.address, options=self.options)
         print("Receiver created")
 
     def on_message(self, event):
         print(f'Receiver [{self.address}] got message:')
+        print(f'  {event.message.reply_to}')
+        print(f'  {event.message.correlation_id}')
         print(f'  {event.message.properties}')
+        print(f'  {event.message.subject}')
         print(f'  {event.message.body}')
         #just for test purposes - the device sends imediatelly the reply if a reply_to is given
         if event.message.reply_to is not None:
@@ -64,9 +77,12 @@ class AmqpReceiver(Amqp):
                     'tenant_id': tenant_id,
                     'device_id': device_id
                 },
-                body=f'Reply to: {event.message.body}'
+                body=f'Reply on {event.message.body}'
             )
-            Container(AmqpSender(self.server, [resp], self.user, self.password)).run()
+            sender = event.container.create_sender(self.connection, None, options=AtLeastOnce())
+            sender.send(resp)
+            sender.close()
+            print("Reply send")
 
 
 class AmqpSender(Amqp):
@@ -75,10 +91,8 @@ class AmqpSender(Amqp):
         self.messages = messages
 
     def on_start(self, event):
-        print("Connecting Sender")
-        conn = self.create_connection(event)
-        print("Sender Connection established")
-        event.container.create_sender(context=conn, target=self.address)
+        self.create_connection(event)
+        event.container.create_sender(context=self.connection, target=self.address)
         print("Sender created")
 
     def on_sendable(self, event):
@@ -86,5 +100,5 @@ class AmqpSender(Amqp):
         for msg in self.messages:
             event.sender.send(msg)
         event.sender.close()
-        event.connection.close()
-        print("Sender & connection closed")
+        #event.connection.close()
+        #print("Sender & connection closed")

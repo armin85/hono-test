@@ -24,12 +24,12 @@ print("Business application subscribing for command replies---------------------
 cr_container = Container(AmqpReceiver(biz_app_uri, command_reply_to, biz_app_user, biz_app_pw))
 cr_thread = threading.Thread(target=lambda: cr_container.run(), daemon=True)
 cr_thread.start()
+time.sleep(2)
 
 print("Device subscribing for commands-------------------------------------------------------------------")
 c_container = Container(AmqpReceiver(device_uri, f'command', device_user, device_pw))
 c_thread = threading.Thread(target=lambda: c_container.run(), daemon=True)
 c_thread.start()
-#some delay to start up the connection
 time.sleep(2)
 
 print("Business application sending a command------------------------------------------------------------")
@@ -44,11 +44,11 @@ msg = Message(
 #as in example https://stackoverflow.com/questions/64698271/difficulty-in-sending-amqp-1-0-message
 Container(AmqpSender(biz_app_uri, [msg], biz_app_user, biz_app_pw, address=f'command/{tenantId}')).run()
 
-time.sleep(6)
+#time.sleep(6)
 print("Device stops listeing for commands----------------------------------------------------------------")
-c_container.stop()
-c_thread.join(timeout=5)
+#c_container.stop()
+#c_thread.join(timeout=5)
 print("Business application stops listening for telemetry & events---------------------------------------")
-cr_container.stop()
-cr_thread.join(timeout=5)
+#cr_container.stop()
+#cr_thread.join(timeout=5)
 print("everything stopped")
